@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "An income or expense entry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user." },
+        "amount": { "type": "number", "description": "The transaction amount." },
+        "category": { "type": "string", "description": "The category of the transaction." },
+        "date": { "type": "string", "format": "date-time", "description": "The date of the transaction." },
+        "note": { "type": "string", "description": "A short note about the transaction." },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "The type of transaction." },
+        "paymentMethod": { "type": "string", "description": "Optional payment method." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the record was created." }
+      },
+      "required": ["userId", "amount", "category", "date", "type", "createdAt"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Monthly budget settings.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user." },
+        "limit": { "type": "number", "description": "The budget limit." },
+        "month": { "type": "string", "description": "The month (YYYY-MM)." },
+        "category": { "type": "string", "description": "Optional category-specific budget." }
+      },
+      "required": ["userId", "limit", "month"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and settings.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The UID of the user." },
+        "displayName": { "type": "string", "description": "The user's display name." },
+        "email": { "type": "string", "format": "email", "description": "The user's email." },
+        "currency": { "type": "string", "description": "Preferred currency (e.g., USD, INR)." },
+        "incomeRange": { "type": "string", "description": "Optional income range." }
+      },
+      "required": ["uid", "email", "currency"]
+    }
+  },
+  "firestore": {
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Collection of all transactions."
+    },
+    "/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Collection of user budgets."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles."
+    }
+  }
+}

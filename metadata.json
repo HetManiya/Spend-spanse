@@ -1,0 +1,7 @@
+{
+  "name": "SpendSense - Smart Expense Manager",
+  "description": "A premium personal finance app for tracking expenses, managing budgets, and gaining AI-powered financial insights.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
