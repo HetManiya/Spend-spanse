@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { 
   collection, 
   addDoc, 
-  serverTimestamp 
+  serverTimestamp,
+  doc,
+  getDoc
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { CATEGORIES, TransactionType } from '../types';
+import { CATEGORIES, TransactionType, UserProfile } from '../types';
 import { motion } from 'motion/react';
 import { 
   X, 
@@ -25,6 +27,7 @@ interface AddTransactionProps {
 
 export default function AddTransaction({ onClose }: AddTransactionProps) {
   const [user] = useAuthState(auth);
+  const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
@@ -32,6 +35,45 @@ export default function AddTransaction({ onClose }: AddTransactionProps) {
   const [note, setNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (!user) return;
+    const fetchProfile = async () => {
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setProfile(docSnap.data() as UserProfile);
+      }
+    };
+    fetchProfile();
+  }, [user]);
+
+  const getCurrencySymbol = (currency?: string) => {
+    switch (currency) {
+      case 'INR': return '₹';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      default: return '$';
+    }
+  };
+
+  const symbol = getCurrencySymbol(profile?.currency);
+
+  const handleNoteChange = (val: string) => {
+    setNote(val);
+    if (type === 'expense') {
+      const keywords: { [key: string]: string } = {
+        'food': 'Food', 'dinner': 'Food', 'lunch': 'Food', 'grocery': 'Food', 'restaurant': 'Food',
+        'travel': 'Travel', 'fuel': 'Travel', 'uber': 'Travel', 'ola': 'Travel', 'train': 'Travel', 'flight': 'Travel',
+        'shopping': 'Shopping', 'amazon': 'Shopping', 'flipkart': 'Shopping', 'clothes': 'Shopping',
+        'rent': 'Rent', 'house': 'Rent', 'flat': 'Rent',
+        'health': 'Health', 'doctor': 'Health', 'medicine': 'Health', 'hospital': 'Health', 'gym': 'Health',
+        'recharge': 'Others', 'bill': 'Others', 'movie': 'Others'
+      };
+      const found = Object.keys(keywords).find(k => val.toLowerCase().includes(k));
+      if (found) setCategory(keywords[found]);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +93,7 @@ export default function AddTransaction({ onClose }: AddTransactionProps) {
       });
       onClose();
     } catch (error) {
-      console.error("Error adding transaction:", error);
+      handleFirestoreError(error, OperationType.CREATE, 'transactions');
     } finally {
       setLoading(false);
     }
@@ -108,7 +150,7 @@ export default function AddTransaction({ onClose }: AddTransactionProps) {
           {/* Amount Input */}
           <div className="relative">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-slate-500" />
+              <span className="font-bold text-slate-500">{symbol}</span>
             </div>
             <input
               type="number"
@@ -179,7 +221,7 @@ export default function AddTransaction({ onClose }: AddTransactionProps) {
                   type="text"
                   placeholder="Optional note"
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => handleNoteChange(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20"
                 />
                 <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />

@@ -27,6 +27,7 @@ export interface UserProfile {
   photoURL?: string;
   currency: string;
   incomeRange?: string;
+  monthlyBudget?: number;
 }
 
 export const CATEGORIES = {

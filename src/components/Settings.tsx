@@ -3,14 +3,16 @@ import {
   collection, 
   query, 
   where, 
+  orderBy,
   onSnapshot,
   setDoc,
   doc,
-  getDoc
+  getDoc,
+  getDocs
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { UserProfile, Budget } from '../types';
+import { UserProfile, Budget, Transaction } from '../types';
 import { 
   User, 
   Bell, 
@@ -43,7 +45,7 @@ export default function Settings() {
           uid: user.uid,
           displayName: user.displayName || 'User',
           email: user.email || '',
-          currency: 'USD',
+          currency: 'INR',
         };
         await setDoc(docRef, newProfile);
         setProfile(newProfile);
@@ -61,6 +63,8 @@ export default function Settings() {
       if (!snapshot.empty) {
         setBudget({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Budget);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'budgets');
     });
 
     fetchProfile();
@@ -80,7 +84,73 @@ export default function Settings() {
       });
       setMessage({ type: 'success', text: 'Budget updated successfully!' });
     } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `budgets/${budget?.id || 'new'}`);
       setMessage({ type: 'error', text: 'Failed to update budget.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  const handleSaveCurrency = async (currency: string) => {
+    if (!user || !profile) return;
+    setSaving(true);
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      await setDoc(docRef, { currency }, { merge: true });
+      setProfile({ ...profile, currency });
+      setMessage({ type: 'success', text: 'Currency updated successfully!' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
+      setMessage({ type: 'error', text: 'Failed to update currency.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const q = query(
+        collection(db, 'transactions'),
+        where('userId', '==', user.uid),
+        orderBy('date', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => doc.data() as Transaction);
+
+      if (data.length === 0) {
+        setMessage({ type: 'error', text: 'No transactions to export.' });
+        return;
+      }
+
+      const headers = ['Date', 'Type', 'Category', 'Amount', 'Note', 'Payment Method'];
+      const csvRows = [
+        headers.join(','),
+        ...data.map(t => [
+          t.date,
+          t.type,
+          t.category,
+          t.amount,
+          `"${t.note.replace(/"/g, '""')}"`,
+          t.paymentMethod || 'Cash'
+        ].join(','))
+      ];
+
+      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `SpendSense_Full_Export_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setMessage({ type: 'success', text: 'Export successful!' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
+      setMessage({ type: 'error', text: 'Failed to export data.' });
     } finally {
       setSaving(false);
       setTimeout(() => setMessage(null), 3000);
@@ -151,7 +221,9 @@ export default function Settings() {
                     onBlur={(e) => handleSaveBudget(e.target.value)}
                     className="w-full pl-12 pr-6 py-4 bg-slate-50 border-none rounded-2xl text-xl font-bold focus:ring-2 focus:ring-primary/20 transition-all"
                   />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</div>
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                    {profile?.currency === 'INR' ? '₹' : profile?.currency === 'EUR' ? '€' : profile?.currency === 'GBP' ? '£' : '$'}
+                  </div>
                 </div>
                 <p className="text-xs text-slate-400 ml-1">We'll notify you when you reach 80% of this limit.</p>
               </div>
@@ -159,9 +231,13 @@ export default function Settings() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-500 uppercase ml-1">Currency</label>
-                  <select className="w-full px-4 py-3 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20">
-                    <option value="USD">USD ($)</option>
+                  <select 
+                    value={profile?.currency || 'INR'}
+                    onChange={(e) => handleSaveCurrency(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20"
+                  >
                     <option value="INR">INR (₹)</option>
+                    <option value="USD">USD ($)</option>
                     <option value="EUR">EUR (€)</option>
                     <option value="GBP">GBP (£)</option>
                   </select>
@@ -200,8 +276,12 @@ export default function Settings() {
             <p className="text-slate-500 text-sm mb-6">
               Download all your transaction history in CSV format for external analysis.
             </p>
-            <button className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95">
-              Export to CSV
+            <button 
+              onClick={handleExportCSV}
+              disabled={saving}
+              className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {saving ? "Processing..." : "Export to CSV"}
             </button>
           </div>
         </div>

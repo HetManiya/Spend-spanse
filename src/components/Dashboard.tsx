@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { 
   collection, 
   query, 
@@ -8,12 +9,13 @@ import {
   addDoc,
   deleteDoc,
   doc,
+  getDoc,
   updateDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Transaction, CATEGORIES } from '../types';
+import { Transaction, CATEGORIES, UserProfile } from '../types';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -24,7 +26,8 @@ import {
   Tag,
   MoreVertical,
   Trash2,
-  Edit2
+  Edit2,
+  Wallet
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { 
@@ -41,10 +44,19 @@ import { cn } from '../lib/utils';
 export default function Dashboard() {
   const [user] = useAuthState(auth);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
+
+    const fetchProfile = async () => {
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setProfile(docSnap.data() as UserProfile);
+      }
+    };
 
     const q = query(
       collection(db, 'transactions'),
@@ -60,10 +72,11 @@ export default function Dashboard() {
       setTransactions(data);
       setLoading(false);
     }, (error) => {
-      console.error("Firestore Error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
       setLoading(false);
     });
 
+    fetchProfile();
     return () => unsubscribe();
   }, [user]);
 
@@ -76,6 +89,27 @@ export default function Dashboard() {
     .reduce((acc, t) => acc + t.amount, 0);
 
   const balance = totalIncome - totalExpense;
+
+  const mostSpentCategory = transactions
+    .filter(t => t.type === 'expense')
+    .reduce((acc: { [key: string]: number }, t) => {
+      acc[t.category] = (acc[t.category] || 0) + t.amount;
+      return acc;
+    }, {});
+
+  const topCategory = Object.entries(mostSpentCategory)
+    .sort(([, a], [, b]) => b - a)[0];
+
+  const getCurrencySymbol = (currency?: string) => {
+    switch (currency) {
+      case 'INR': return '₹';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      default: return '$';
+    }
+  };
+
+  const symbol = getCurrencySymbol(profile?.currency);
 
   const chartData = transactions
     .slice(0, 7)
@@ -97,59 +131,121 @@ export default function Dashboard() {
     <div className="space-y-8">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl">Dashboard</h1>
-          <p className="text-slate-500">Welcome back, {user?.displayName?.split(' ')[0]}</p>
+          <h1 className="text-4xl font-display font-bold text-slate-900">
+            Welcome back, {user?.displayName?.split(' ')[0] || 'User'}!
+          </h1>
+          <p className="text-slate-500">Here's your financial overview for today.</p>
         </div>
-        <div className="flex items-center gap-2 bg-white p-1 rounded-2xl border border-slate-200">
-          <button className="px-4 py-2 bg-slate-100 rounded-xl text-sm font-medium">Monthly</button>
-          <button className="px-4 py-2 text-slate-500 text-sm font-medium">Weekly</button>
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden md:block">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Current Date</p>
+            <p className="font-bold text-slate-900">{format(new Date(), 'MMMM dd, yyyy')}</p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-primary/20">
+            <img src={user?.photoURL || `https://ui-avatars.com/api/?name=${user?.displayName}`} alt="Profile" referrerPolicy="no-referrer" />
+          </div>
         </div>
       </header>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass p-6 rounded-3xl bg-gradient-to-br from-primary to-blue-600 text-white border-none">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-medium text-white/80">Total Balance</span>
-            <div className="p-2 bg-white/20 rounded-lg">
-              <TrendingUp className="w-5 h-5" />
-            </div>
+        <div className="glass p-8 rounded-[32px] bg-gradient-to-br from-primary to-blue-700 text-white border-none shadow-2xl shadow-primary/30 md:col-span-2 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10">
+            <Wallet className="w-32 h-32" />
           </div>
-          <h2 className="text-4xl font-bold mb-2">${balance.toLocaleString()}</h2>
-          <div className="flex items-center gap-2 text-sm text-white/80">
-            <ArrowUpRight className="w-4 h-4" />
-            <span>+12.5% from last month</span>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <span className="text-sm font-bold uppercase tracking-widest text-white/70">Remaining Balance</span>
+              <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+            </div>
+            <h2 className="text-5xl font-display font-bold mb-4">{symbol}{balance.toLocaleString()}</h2>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                <ArrowUpRight className="w-4 h-4 text-accent" />
+                <span>{symbol}{totalIncome.toLocaleString()} Income</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                <ArrowDownRight className="w-4 h-4 text-warning" />
+                <span>{symbol}{totalExpense.toLocaleString()} Expense</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="glass p-6 rounded-3xl border-slate-200">
+        <div className="glass p-8 rounded-[32px] border-slate-200 flex flex-col justify-center">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-medium text-slate-500">Income</span>
-            <div className="p-2 bg-accent/10 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-accent" />
+            <span className="text-sm font-bold uppercase tracking-widest text-slate-400">Most Spent</span>
+            <div className="p-3 bg-warning/10 rounded-2xl">
+              <Tag className="w-6 h-6 text-warning" />
             </div>
           </div>
-          <h2 className="text-3xl font-bold mb-2 text-slate-900">${totalIncome.toLocaleString()}</h2>
-          <div className="flex items-center gap-2 text-sm text-accent">
-            <ArrowUpRight className="w-4 h-4" />
-            <span>Healthy growth</span>
-          </div>
-        </div>
-
-        <div className="glass p-6 rounded-3xl border-slate-200">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-medium text-slate-500">Expenses</span>
-            <div className="p-2 bg-warning/10 rounded-lg">
-              <TrendingDown className="w-5 h-5 text-warning" />
-            </div>
-          </div>
-          <h2 className="text-3xl font-bold mb-2 text-slate-900">${totalExpense.toLocaleString()}</h2>
-          <div className="flex items-center gap-2 text-sm text-warning">
-            <ArrowDownRight className="w-4 h-4" />
-            <span>Keep it in check</span>
-          </div>
+          {topCategory ? (
+            <>
+              <h2 className="text-3xl font-display font-bold text-slate-900 mb-1">{topCategory[0]}</h2>
+              <p className="text-warning font-bold text-xl">{symbol}{topCategory[1].toLocaleString()}</p>
+            </>
+          ) : (
+            <p className="text-slate-400">No data yet</p>
+          )}
         </div>
       </div>
+
+      {/* Budget Progress */}
+      {profile?.monthlyBudget && (
+        <div className="glass p-8 rounded-[32px] border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-xl font-display font-bold text-slate-900">Monthly Budget</h3>
+              <p className="text-slate-500 text-sm">Target: {symbol}{profile.monthlyBudget.toLocaleString()}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-display font-bold text-slate-900">
+                {Math.round((totalExpense / profile.monthlyBudget) * 100)}%
+              </p>
+              <p className="text-slate-500 text-sm">Consumed</p>
+            </div>
+          </div>
+          
+          <div className="relative h-4 bg-slate-100 rounded-full overflow-hidden mb-4">
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min((totalExpense / profile.monthlyBudget) * 100, 100)}%` }}
+              transition={{ duration: 1, ease: "easeOut" }}
+              className={cn(
+                "h-full rounded-full transition-colors duration-500",
+                (totalExpense / profile.monthlyBudget) >= 1 ? "bg-warning" : 
+                (totalExpense / profile.monthlyBudget) >= 0.8 ? "bg-orange-500" : "bg-primary"
+              )}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {(totalExpense / profile.monthlyBudget) >= 1 ? (
+                <div className="flex items-center gap-2 text-warning font-bold text-sm bg-warning/10 px-3 py-1 rounded-full">
+                  <TrendingDown className="w-4 h-4" />
+                  <span>Budget Exceeded!</span>
+                </div>
+              ) : (totalExpense / profile.monthlyBudget) >= 0.8 ? (
+                <div className="flex items-center gap-2 text-orange-500 font-bold text-sm bg-orange-500/10 px-3 py-1 rounded-full">
+                  <TrendingDown className="w-4 h-4" />
+                  <span>Nearing Limit (80%+)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-accent font-bold text-sm bg-accent/10 px-3 py-1 rounded-full">
+                  <TrendingUp className="w-4 h-4" />
+                  <span>On Track</span>
+                </div>
+              )}
+            </div>
+            <p className="text-slate-400 text-sm">
+              {symbol}{(profile.monthlyBudget - totalExpense).toLocaleString()} remaining
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Chart Section */}
       <div className="glass p-6 rounded-3xl border-slate-200">
@@ -223,7 +319,7 @@ export default function Dashboard() {
                   "font-bold",
                   t.type === 'income' ? "text-accent" : "text-warning"
                 )}>
-                  {t.type === 'income' ? '+' : '-'}${t.amount.toLocaleString()}
+                  {t.type === 'income' ? '+' : '-'}{symbol}{t.amount.toLocaleString()}
                 </p>
                 <p className="text-xs text-slate-400">{t.paymentMethod || 'Cash'}</p>
               </div>

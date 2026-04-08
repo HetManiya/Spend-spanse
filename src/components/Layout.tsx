@@ -6,7 +6,8 @@ import {
   PieChart, 
   Settings, 
   LogOut,
-  Wallet
+  Wallet,
+  FileText
 } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -22,6 +23,7 @@ export default function Layout({ children, activeTab, setActiveTab }: LayoutProp
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
     { id: 'analytics', icon: PieChart, label: 'Analytics' },
     { id: 'add', icon: PlusCircle, label: 'Add', primary: true },
+    { id: 'reports', icon: FileText, label: 'Reports' },
     { id: 'transactions', icon: Wallet, label: 'History' },
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];

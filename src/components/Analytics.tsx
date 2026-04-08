@@ -6,7 +6,7 @@ import {
   orderBy, 
   onSnapshot 
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { Transaction } from '../types';
 import { 
@@ -57,6 +57,8 @@ export default function Analytics() {
         ...doc.data()
       })) as Transaction[];
       setTransactions(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
 
     return () => unsubscribe();
@@ -97,9 +99,11 @@ export default function Analytics() {
     setAnalyzing(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const prompt = `Analyze these financial transactions and provide 3 smart, actionable insights for better money management. 
-      Format as markdown with bullet points.
-      Transactions: ${JSON.stringify(transactions.slice(0, 20).map(t => ({ type: t.type, amount: t.amount, category: t.category, date: t.date })))}`;
+      const prompt = `You are a professional financial advisor. Analyze these financial transactions and provide exactly 3 smart, actionable, and personalized insights for better money management. 
+      Each insight should be concise (max 2 sentences) and highly relevant to the data provided.
+      Format as markdown with a title for each insight and a bullet point.
+      
+      Transactions: ${JSON.stringify(transactions.slice(0, 30).map(t => ({ type: t.type, amount: t.amount, category: t.category, date: t.date, note: t.note })))}`;
       
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",

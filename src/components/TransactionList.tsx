@@ -6,11 +6,12 @@ import {
   orderBy, 
   onSnapshot,
   deleteDoc,
-  doc
+  doc,
+  getDoc
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Transaction } from '../types';
+import { Transaction, UserProfile } from '../types';
 import { 
   Search, 
   Filter, 
@@ -22,16 +23,27 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 
 export default function TransactionList() {
   const [user] = useAuthState(auth);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
+
+    const fetchProfile = async () => {
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setProfile(docSnap.data() as UserProfile);
+      }
+    };
 
     const q = query(
       collection(db, 'transactions'),
@@ -45,10 +57,24 @@ export default function TransactionList() {
         ...doc.data()
       })) as Transaction[];
       setTransactions(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
 
+    fetchProfile();
     return () => unsubscribe();
   }, [user]);
+
+  const getCurrencySymbol = (currency?: string) => {
+    switch (currency) {
+      case 'INR': return '₹';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      default: return '$';
+    }
+  };
+
+  const symbol = getCurrencySymbol(profile?.currency);
 
   const filteredTransactions = transactions.filter(t => {
     const matchesSearch = t.category.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -58,12 +84,11 @@ export default function TransactionList() {
   });
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this transaction?')) {
-      try {
-        await deleteDoc(doc(db, 'transactions', id));
-      } catch (error) {
-        console.error("Error deleting:", error);
-      }
+    try {
+      await deleteDoc(doc(db, 'transactions', id));
+      setDeletingId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
     }
   };
 
@@ -140,11 +165,11 @@ export default function TransactionList() {
                   "text-lg font-bold",
                   t.type === 'income' ? "text-accent" : "text-warning"
                 )}>
-                  {t.type === 'income' ? '+' : '-'}${t.amount.toLocaleString()}
+                  {t.type === 'income' ? '+' : '-'}{symbol}{t.amount.toLocaleString()}
                 </p>
               </div>
               <button 
-                onClick={() => handleDelete(t.id)}
+                onClick={() => setDeletingId(t.id)}
                 className="p-2 text-slate-300 hover:text-warning hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
               >
                 <Trash2 className="w-5 h-5" />
@@ -152,6 +177,34 @@ export default function TransactionList() {
             </div>
           </div>
         ))}
+        
+        {/* Delete Confirmation Modal */}
+        {deletingId && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white p-8 rounded-[32px] max-w-sm w-full shadow-2xl"
+            >
+              <h3 className="text-xl font-display font-bold text-slate-900 mb-2">Delete Transaction?</h3>
+              <p className="text-slate-500 mb-8">This action cannot be undone. Are you sure you want to proceed?</p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setDeletingId(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDelete(deletingId)}
+                  className="flex-1 py-3 bg-warning text-white rounded-2xl font-bold hover:bg-warning/90 transition-all shadow-lg shadow-warning/20"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
         
         {filteredTransactions.length === 0 && (
           <div className="text-center py-20 glass rounded-[32px] border-dashed border-2 border-slate-200">

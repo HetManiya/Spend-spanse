@@ -1,19 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
+import { doc, getDocFromCache, getDocFromServer } from 'firebase/firestore';
 import Auth from './components/Auth';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import TransactionList from './components/TransactionList';
 import Analytics from './components/Analytics';
+import Reports from './components/Reports';
 import Settings from './components/Settings';
 import AddTransaction from './components/AddTransaction';
+import SplashScreen from './components/SplashScreen';
 import { AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
+  const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  useEffect(() => {
+    async function testConnection() {
+      try {
+        // Test connection to Firestore
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+        }
+        // Skip logging for other errors, as this is simply a connection test.
+      }
+    }
+    testConnection();
+  }, []);
+
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
 
   if (loading) {
     return (
@@ -46,6 +69,8 @@ export default function App() {
         return <TransactionList />;
       case 'analytics':
         return <Analytics />;
+      case 'reports':
+        return <Reports />;
       case 'settings':
         return <Settings />;
       default:
